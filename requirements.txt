@@ -1,0 +1,13 @@
+fastapi==0.95.2
+uvicorn==0.22.0
+psycopg2-binary==2.9.9
+pgvector==0.4.1
+sentence-transformers==2.2.2
+transformers==4.44.2
+torch==2.2.2
+streamlit==1.38.0
+pandas==2.2.3
+python-dotenv==1.0.1
+pydeck==0.8.1b0
+tqdm==4.66.5
+requests==2.32.3
