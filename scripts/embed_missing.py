@@ -4,7 +4,7 @@ from backend.app.db import get_cursor
 from backend.app.embeddings import embed_texts, format_vector_for_pg
 from tqdm import tqdm
 
-BATCH = 128  # rows per batch for processing
+BATCH = 1000  # rows per batch for processing
 
 
 def ensure_label_column():
