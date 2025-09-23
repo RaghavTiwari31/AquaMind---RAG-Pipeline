@@ -10,13 +10,23 @@ from .embeddings import embed_texts
 from .utils import retrieve_topk_by_embedding
 from .sanitizer import is_safe_select, extract_first_select
 from .db import get_cursor
-from transformers import pipeline, AutoTokenizer
 from concurrent.futures import ThreadPoolExecutor
+
+# NEW imports for Google Gen AI
+from google import genai
+from google.genai import types
 
 load_dotenv()
 
-# Default generation model (can override with env var)
-GEN_MODEL = os.environ.get("GENERATION_MODEL", "Salesforce/codet5p-770m-py")
+# Read generation config from env
+GEN_MODEL = os.environ.get("GENERATION_MODEL", "gemini-2.0-flash-001")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+MAX_PROMPT_CHARS = int(os.environ.get("MAX_PROMPT_CHARS", 8000))
+MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", 6000))
+
+if not GOOGLE_API_KEY:
+    # fail fast so the developer notices
+    raise RuntimeError("Please set GOOGLE_API_KEY (or GEMINI_API_KEY) in .env")
 
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
@@ -24,90 +34,68 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="ARGO_RAG", version="0.1")
 
-# ---- Global caches ----
-_gen_pipe = None
-_tokenizer = None
+# ---- GenAI client ----
+_gen_client = None
 
+def get_gen_client():
+    """Lazy init of Google GenAI client (gemini)."""
+    global _gen_client
+    if _gen_client is None:
+        _gen_client = genai.Client(api_key=GOOGLE_API_KEY)
+    return _gen_client
 
-def get_gen_pipe():
-    """Lazy-load the text2text pipeline (flan-t5)."""
-    global _gen_pipe
-    if _gen_pipe is None:
-        _gen_pipe = pipeline("text2text-generation", model=GEN_MODEL)
-    return _gen_pipe
-
-
-def get_tokenizer():
-    """Lazy-load tokenizer for safe truncation."""
-    global _tokenizer
-    if _tokenizer is None:
-        _tokenizer = AutoTokenizer.from_pretrained(GEN_MODEL)
-    return _tokenizer
-
-
-def truncate_prompt(prompt: str, max_tokens: int = 512) -> str:
+# ---- Utility: build/safely truncate context ----
+def build_truncated_context(retrieved, max_chars=MAX_PROMPT_CHARS, per_summary_cap=800):
     """
-    Ensure prompt does not exceed model max input length.
-    Uses the model's tokenizer for safe truncation.
+    Build a compact context text from retrieved rows; enforce an overall character budget.
+    Each summary is truncated to `per_summary_cap` characters.
     """
-    tokenizer = get_tokenizer()
-    tokens = tokenizer(prompt, truncation=True, max_length=max_tokens, return_tensors="pt")
-    return tokenizer.decode(tokens["input_ids"][0], skip_special_tokens=True)
+    pieces = []
+    total = 0
+    for r in retrieved:
+        s = f"TABLE:{r['source_table']} | ID:{r['source_id']} | {r['summary_text']}"
+        if len(s) > per_summary_cap:
+            s = s[:per_summary_cap-3] + "..."
+        if total + len(s) > max_chars:
+            break
+        pieces.append(s)
+        total += len(s)
+    return "\n\n".join(pieces)
 
+# (Keep your existing validate_sql_syntax function)
 def validate_sql_syntax(sql: str) -> tuple[bool, str]:
-    """
-    Additional SQL validation to catch common issues.
-    Returns (is_valid, error_message)
-    """
     sql_upper = sql.upper().strip()
-    
-    # Check if it's a SELECT statement
     if not sql_upper.startswith('SELECT'):
         return False, "Only SELECT statements are allowed"
-    
-    # Check for FROM clause
     if ' FROM ' not in sql_upper:
         return False, "SQL must include a FROM clause"
-    
-    # Check for dangerous operations
     dangerous_ops = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 'TRUNCATE']
     for op in dangerous_ops:
         if op in sql_upper:
             return False, f"Operation {op} is not allowed"
-    
-    # Basic alias validation - if using aliases, make sure FROM clause exists
-    lines = sql.replace('\n', ' ').strip()
-    
-    # Look for potential table aliases (T1, T2, etc.)
     import re
     alias_pattern = r'\b[T]\d+\.'
     if re.search(alias_pattern, sql.upper()):
-        # Check if FROM clause properly defines the alias
         from_match = re.search(r'FROM\s+(\w+)(?:\s+(?:AS\s+)?([T]\d+))?', sql.upper())
         if not from_match:
             return False, "Table aliases found but FROM clause is missing or malformed"
-        if from_match.group(2) is None:  # No alias defined after table name
+        if from_match.group(2) is None:
             return False, "Table alias used but not properly defined in FROM clause"
-    
     return True, "Valid"
 
-
 executor = ThreadPoolExecutor(max_workers=2)
-
 
 class QueryPayload(BaseModel):
     question: str
     top_k: int = 5
 
-
 @app.post("/query")
 async def query(req: QueryPayload, request: Request):
     try:
-        # Log the incoming request
         body = await request.body()
         logger.debug(f"Received request body: {body.decode()}")
         logger.debug(f"Parsed payload: question='{req.question}', top_k={req.top_k}")
-        
+
         question = req.question
         top_k = int(req.top_k)
 
@@ -116,7 +104,7 @@ async def query(req: QueryPayload, request: Request):
 
         # 1) embed the question
         try:
-            q_vec = embed_texts([question])[0]  # numpy array
+            q_vec = embed_texts([question])[0]
             logger.debug(f"Successfully embedded question, vector shape: {q_vec.shape}")
         except Exception as e:
             logger.error(f"Embedding failed: {e}")
@@ -130,14 +118,11 @@ async def query(req: QueryPayload, request: Request):
             logger.error(f"Retrieval failed: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to retrieve context: {str(e)}")
 
-        context_text = "\n\n".join(
-            [
-                f"TABLE:{r['source_table']} | ID:{r['source_id']} | {r['summary_text']}"
-                for r in retrieved
-            ]
-        )
+        # 3) build a bounded context (avoid long prompts)
+        context_text = build_truncated_context(retrieved, max_chars=MAX_PROMPT_CHARS, per_summary_cap=800)
+        logger.debug(f"Context length (chars): {len(context_text)}")
 
-        # 3) build prompt for SQL generation
+        # 4) construct the SQL-generation prompt (same rules as before)
         prompt = f"""
 You are an assistant that transforms a natural-language question about the ARGO_D database
 into a single READ-ONLY SQL SELECT query (or a short natural-language answer when a SELECT is inappropriate).
@@ -158,38 +143,37 @@ User question:
 {question}
 """
 
-        # Truncate safely to fit model limits
+        # 5) call Gemini / GenAI to generate SQL
         try:
-            prompt = truncate_prompt(prompt, max_tokens=512)
-            logger.debug(f"Prompt truncated to length: {len(prompt)}")
-        except Exception as e:
-            logger.error(f"Prompt truncation failed: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to process prompt: {str(e)}")
-
-        # 4) ask the generator
-        try:
-            gen = get_gen_pipe()
-            out = gen(prompt, max_new_tokens=128, do_sample=False)[0]["generated_text"].strip()
-            logger.debug(f"Generated response: {out}")
+            client = get_gen_client()
+            cfg = types.GenerateContentConfig(
+                temperature=0.0,
+                max_output_tokens=MAX_OUTPUT_TOKENS
+            )
+            response = client.models.generate_content(
+                model=GEN_MODEL,
+                contents=prompt,
+                config=cfg
+            )
+            out = response.text.strip()
+            logger.debug(f"Generated response: {out[:1000]}")  # avoid logging huge text
         except Exception as e:
             logger.error(f"Generation failed: {e}")
             raise HTTPException(status_code=500, detail=f"Text generation failed: {str(e)}")
 
-                # 5) try to extract SQL and sanitize
+        # 6) extraction & sanitization
         sql_candidate = extract_first_select(out)
         safe = False
         validation_error = ""
-        
+
         if sql_candidate:
             safe = is_safe_select(sql_candidate)
             if safe:
-                # Additional syntax validation
                 is_valid, error_msg = validate_sql_syntax(sql_candidate)
                 if not is_valid:
                     safe = False
                     validation_error = error_msg
                     logger.warning(f"SQL failed validation: {error_msg}")
-            
             logger.debug(f"SQL candidate: {sql_candidate}, safe: {safe}")
             if validation_error:
                 logger.debug(f"Validation error: {validation_error}")
@@ -204,11 +188,11 @@ User question:
                     logger.debug(f"SQL executed successfully, {len(rows)} rows returned")
             except Exception as e:
                 logger.error(f"SQL execution error: {e}")
-                # If SQL execution fails, fall back to natural language response
+                # Fall back to NL response
                 logger.info("Falling back to natural language response due to SQL error")
                 sql_candidate = None
                 safe = False
-                
+
             return {
                 "type": "sql",
                 "sql": sql_candidate,
@@ -231,13 +215,22 @@ Question:
 Answer:
 """
             try:
-                answer_prompt = truncate_prompt(answer_prompt, max_tokens=512)
-                ans = gen(answer_prompt, max_new_tokens=128, do_sample=False)[0]["generated_text"].strip()
-                logger.debug(f"Generated answer: {ans}")
+                client = get_gen_client()
+                cfg = types.GenerateContentConfig(
+                    temperature=0.0,
+                    max_output_tokens=MAX_OUTPUT_TOKENS
+                )
+                answer_resp = client.models.generate_content(
+                    model=GEN_MODEL,
+                    contents=answer_prompt,
+                    config=cfg
+                )
+                ans = answer_resp.text.strip()
+                logger.debug(f"Generated answer: {ans[:1000]}")
             except Exception as e:
                 logger.error(f"Answer generation failed: {e}")
                 raise HTTPException(status_code=500, detail=f"Answer generation failed: {str(e)}")
-                
+
             return {
                 "type": "text",
                 "answer": ans,
@@ -246,10 +239,8 @@ Answer:
             }
 
     except HTTPException:
-        # Re-raise HTTP exceptions as-is
         raise
     except Exception as e:
-        # Catch any other unexpected errors
         logger.error(f"Unexpected error in query endpoint: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
@@ -258,8 +249,3 @@ Answer:
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "message": "Backend is running"}
-
-
-
-
-
