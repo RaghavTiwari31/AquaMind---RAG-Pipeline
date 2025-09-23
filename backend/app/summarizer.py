@@ -1,10 +1,5 @@
 # backend/app/summarizer.py
-"""
-Summarizer job:
-- discover ARGO_D tables (the DB already has tables for 2001..2017)
-- for each row, build a textual summary (compact)
-- upsert into `summaries` table (source_table, source_id, summary_text)
-"""
+
 from .db import get_cursor
 from .embeddings import embed_texts, format_vector_for_pg, EMBEDDING_DIM
 import re
