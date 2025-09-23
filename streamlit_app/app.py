@@ -19,7 +19,7 @@ def post_question(q, top_k=5):
     payload = {"question": q, "top_k": top_k}
     
     try:
-        response = requests.post(f"{API_URL}/query", json=payload, timeout=120)
+        response = requests.post(f"{API_URL}/query", json=payload, timeout=240)
         
         if response.status_code == 200:
             return response.json()
