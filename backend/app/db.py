@@ -1,22 +1,16 @@
 # backend/app/db.py
-import os
+from __future__ import annotations
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from urllib.parse import urlparse
 from contextlib import contextmanager
-from dotenv import load_dotenv
-
-load_dotenv()
-
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("Please set DATABASE_URL in the environment or .env")
+from .config import DATABASE_URL
 
 def _get_conn():
     return psycopg2.connect(DATABASE_URL)
 
 @contextmanager
-def get_cursor(commit=False):
+def get_cursor(commit: bool = False):
+    """Context manager that yields a RealDictCursor and optionally commits."""
     conn = _get_conn()
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -24,5 +18,7 @@ def get_cursor(commit=False):
         if commit:
             conn.commit()
     finally:
-        cur.close()
-        conn.close()
+        try:
+            cur.close()
+        finally:    
+            conn.close()
