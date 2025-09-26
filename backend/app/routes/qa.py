@@ -26,18 +26,30 @@ class QueryPayload(BaseModel):
     session_id: Optional[str] = None
 
 # ---------- Helpers ----------
-_YEAR_RE = re.compile(r"\b(200[1-9]|201[0-7])\b")
-_YEAR_RANGE_RE = re.compile(r"(200[1-9]|201[0-7])\s*(?:to|-)\s*(200[1-9]|201[0-7])", re.IGNORECASE)
+# _YEAR_RE = re.compile(r"\b2025\b")
+# _YEAR_RANGE_RE = re.compile(r"\b2025\b", re.IGNORECASE)
 
 DATA_DICTIONARY = """
 Columns used across argo_details_YYYY tables:
-- ad_observation_id (text): observation/session id.
-- depth (double precision): depth in meters.
-- temperature (double precision): seawater temperature in °C.
-- salinity (double precision): practical salinity units (PSU).
-- density (double precision): seawater density (kg/m^3).
-- *_flag (bigint): quality-control flags; DO NOT aggregate or select unless asked specifically.
+- latitude (float8): Latitude in decimal degrees.
+- longitude (float8): Longitude in decimal degrees.
+- time(timestamp without time zone): Time and Date of data measurement.
+- pressure (float8): pressure in atm.
+- temperature (float8): seawater temperature in °C.
+- salinity (float8): practical salinity units (PSU).
 """
+
+# def _years_from_text(text: str) -> List[int]:
+#     years = [int(y) for y in _YEAR_RE.findall(text or "")]
+#     m = _YEAR_RANGE_RE.search(text or "")
+#     if m:
+#         a, b = int(m.group(1)), int(m.group(2))
+#         lo, hi = (a, b) if a <= b else (b, a)
+#         years = list(range(lo, hi + 1))
+#     years = [y for y in years if 2001 <= y <= 2017]
+#     return sorted(set(years))
+_YEAR_RE = re.compile(r"\b2025\b")
+_YEAR_RANGE_RE = re.compile(r"(2025)\s*(?:to|-)\s*(2025)", re.IGNORECASE)
 
 def _years_from_text(text: str) -> List[int]:
     years = [int(y) for y in _YEAR_RE.findall(text or "")]
@@ -46,8 +58,8 @@ def _years_from_text(text: str) -> List[int]:
         a, b = int(m.group(1)), int(m.group(2))
         lo, hi = (a, b) if a <= b else (b, a)
         years = list(range(lo, hi + 1))
-    years = [y for y in years if 2001 <= y <= 2017]
     return sorted(set(years))
+
 
 def _union_all_subquery(col_expr: str, years: List[int]) -> str:
     if not years: return ""
@@ -148,7 +160,8 @@ Hard requirements:
 - If a YEAR RANGE is mentioned (e.g., 2001..2005 or "2001 to 2005"), UNION ALL across those year tables, then aggregate.
 - Use columns from the data dictionary; ignore *_flag columns.
 - You MAY generate SQL using the schema and mapping even if the retrieval context is empty.
-
+- For a location specific query, produce results according to the latitude/longitude columns in the schema.
+- Interpret the lat/long columns for location-based queries.
 Mapping rule:
 - Year Y ⇒ table argo_details_Y
 

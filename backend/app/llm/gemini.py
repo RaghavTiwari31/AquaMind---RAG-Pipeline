@@ -9,7 +9,7 @@ _client: genai.Client | None = None
 log = logging.getLogger(__name__)
 
 FALLBACKS = [
-    "gemini-2.0-flash-001",
+    "gemini-2.5-flash",
     "gemini-1.5-flash",
     "gemini-1.5-pro",
 ]
