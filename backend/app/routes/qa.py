@@ -148,6 +148,8 @@ Hard requirements:
 - If a YEAR RANGE is mentioned (e.g., 2001..2005 or "2001 to 2005"), UNION ALL across those year tables, then aggregate.
 - Use columns from the data dictionary; ignore *_flag columns.
 - You MAY generate SQL using the schema and mapping even if the retrieval context is empty.
+- Analyze the use prompt carefully before answering.
+- Interpret the reult back into natural language as short answer for the user to understand better.
 
 Mapping rule:
 - Year Y ⇒ table argo_details_Y
