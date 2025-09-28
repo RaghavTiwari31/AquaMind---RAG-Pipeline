@@ -162,6 +162,9 @@ Hard requirements:
 - You MAY generate SQL using the schema and mapping even if the retrieval context is empty.
 - For a location specific query, produce results according to the latitude/longitude columns in the schema.
 - Interpret the lat/long columns for location-based queries.
+- Analyze the use prompt carefully before answering.
+- Interpret the reult back into natural language as short answer for the user to understand better.
+
 Mapping rule:
 - Year Y ⇒ table argo_details_Y
 
@@ -206,7 +209,7 @@ Rules:
 - Use argo_details_YYYY tables (YYYY = year).
 - If a year RANGE is asked, UNION ALL those year tables then aggregate.
 - Use columns: temperature, salinity, depth, density (ignore *_flag).
-- Do not include explanations or code fences.
+- Include explanations or code fences.
 
 Question: {req.question}
 Detected years: {mentioned_years or "none"}
