@@ -195,7 +195,7 @@ Rules:
 - Use argo_details_YYYY tables (YYYY = year).
 - If a year RANGE is asked, UNION ALL those year tables then aggregate.
 - Use columns: temperature, salinity, depth, density (ignore *_flag).
-- Do not include explanations or code fences.
+- Include explanations or code fences.
 
 Question: {req.question}
 Detected years: {mentioned_years or "none"}
