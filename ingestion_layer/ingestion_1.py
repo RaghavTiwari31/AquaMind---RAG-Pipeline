@@ -66,7 +66,7 @@ def insert_to_postgres(df, conn_params):
 
     records = list(df.itertuples(index=False, name=None))
     sql = """
-        INSERT INTO latest_data(time, latitude, longitude, pressure, temperature, salinity)
+        INSERT INTO argo_details_2023(time, latitude, longitude, pressure, temperature, salinity)
         VALUES %s
     """
     execute_values(cur, sql, records)
@@ -101,6 +101,6 @@ def process_directory(nc_dir, batch_size=10):
 
 
 if __name__ == "__main__":
-    nc_directory = r"D:\codes\sih\geo_data"
+    nc_directory = r"D:\codes\sih\geo_data\2023"
     process_directory(nc_directory, batch_size=10)
     print("\n✅ Ingestion workflow completed successfully.")
