@@ -3,6 +3,7 @@
 This project is a **Retrieval-Augmented Generation (RAG) system** built on top of the ARGO oceanographic database.  
 
 It combines:
+- **Ingestion Layer** ingests netcdf files into postgre database
 - **FastAPI** as the backend
 - **PostgreSQL + pgvector** for embeddings storage and similarity search
 - **Sentence-Transformers** to embed text and summaries
@@ -20,10 +21,12 @@ It combines:
 ---
 
 ## 📺 Demo Video
-👉 [YouTube Demo Link](https://www.youtube.com/your-demo-link-here)
+👉 [YouTube Demo Link]
+
+---
 
 ## 🚀 Deployment
-👉 [Live Deployment Link](https://your-deployment-link-here)
+👉 [Live Deployment Link]
 
 ---
 
