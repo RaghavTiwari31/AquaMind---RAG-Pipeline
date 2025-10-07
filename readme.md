@@ -22,7 +22,9 @@ It combines:
 
 ## 📺 Demo Video
 
-https://github.com/user-attachments/assets/825df63e-3e77-45a4-bc24-6cc3b27b6be2
+
+https://github.com/user-attachments/assets/73d9a059-98cd-41fa-8c57-bc72353f7537
+
 
 ---
 
