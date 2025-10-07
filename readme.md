@@ -21,7 +21,8 @@ It combines:
 ---
 
 ## 📺 Demo Video
-👉 [YouTube Demo Link]
+
+https://github.com/user-attachments/assets/825df63e-3e77-45a4-bc24-6cc3b27b6be2
 
 ---
 
